@@ -1,6 +1,8 @@
 //! Process management syscalls
+use core::panic;
+
 use crate::{
-    task::{exit_current_and_run_next, suspend_current_and_run_next},
+    task::{exit_current_and_run_next, suspend_current_and_run_next,TASK_MANAGER},
     timer::get_time_us,
 };
 
@@ -39,7 +41,22 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
 }
 
 // TODO: implement the syscall
-pub fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
+pub unsafe fn sys_trace(_trace_request: usize, _id: usize, _data: usize) -> isize {
     trace!("kernel: sys_trace");
-    -1
+    TASK_MANAGER.set_count(3);
+    match _trace_request {
+        0=> {
+            let id= _id as *const u8;
+            return *id as isize;
+        },
+        1=>{
+            let  id= _id as *mut u8;
+            *id=_data as u8;
+            return 0;
+        },
+        2=>{
+            return TASK_MANAGER.get_count(_id) as isize;
+        },
+        _=>panic!("bad count"),
+    }
 }

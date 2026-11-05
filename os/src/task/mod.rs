@@ -45,6 +45,8 @@ pub struct TaskManagerInner {
     tasks: [TaskControlBlock; MAX_APP_NUM],
     /// id of current `Running` task
     current_task: usize,
+    /// 调用次数 count
+    sys_count: [[u16; 512]; MAX_APP_NUM],
 }
 
 lazy_static! {
@@ -65,6 +67,7 @@ lazy_static! {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
                     current_task: 0,
+                    sys_count: [[0; 512]; MAX_APP_NUM],
                 })
             },
         }
@@ -134,6 +137,19 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+    /// 记录系统调用的次数
+    /// 放到teskmanager里面
+    pub fn set_count(&self,_id:usize) {
+        let mut inner=self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.sys_count[current][_id] += 1;
+    }
+    /// 获取系统调用的次数
+    pub fn get_count(&self,_id:usize) ->usize{
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.sys_count[current][_id] as usize
     }
 }
 

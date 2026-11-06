@@ -14,6 +14,7 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::{get_app_data, get_num_app};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
@@ -132,6 +133,12 @@ impl TaskManager {
         let cur = inner.current_task;
         inner.tasks[cur].change_program_brk(size)
     }
+    /// Change lazy
+    pub fn change_lazy_brk(&self, size: i32) -> Option<usize> {
+        let mut inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        inner.tasks[cur].change_program_brk(size)
+    }
 
     /// Switch current `Running` task to the task we have found,
     /// or there is no `Ready` task and we can exit with all applications completed
@@ -152,6 +159,44 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+
+    /// Count one execution of syscall `syscall_id` for task `task_id`.
+    pub fn set_count(&self, task_id: usize, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        if syscall_id < MAX_SYSCALL_NUM {
+            inner.tasks[task_id].syscall_count[syscall_id] += 1;
+        }
+    }
+
+    /// How many times has task `task_id` executed syscall `syscall_id`?
+    pub fn get_count(&self, task_id: usize, syscall_id: usize) -> isize {
+        let inner = self.inner.exclusive_access();
+        if syscall_id < MAX_SYSCALL_NUM {
+            inner.tasks[task_id].syscall_count[syscall_id] as isize
+        } else {
+            0
+        }
+    }
+
+    /// Get the id of the current 'Running' task.
+    pub fn get_current_task(&self) -> usize {
+        let inner = self.inner.exclusive_access();
+        inner.current_task
+    }
+
+    /// Map `len` bytes starting at page-aligned `start` for the current task.
+    pub fn mmap_current(&self, start: usize, len: usize, prot: usize) -> isize {
+        let mut inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        inner.tasks[cur].mmap(start, len, prot)
+    }
+
+    /// Unmap `len` bytes starting at page-aligned `start` for the current task.
+    pub fn munmap_current(&self, start: usize, len: usize) -> isize {
+        let mut inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        inner.tasks[cur].munmap(start, len)
     }
 }
 
@@ -201,4 +246,34 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// lazy
+pub fn change_lazy_brk(size: i32) -> Option<usize> {
+    TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Count one execution of syscall `syscall_id` for task `task_id`.
+pub fn set_count(task_id: usize, syscall_id: usize) {
+    TASK_MANAGER.set_count(task_id, syscall_id);
+}
+
+/// How many times has task `task_id` executed syscall `syscall_id`?
+pub fn get_count(task_id: usize, syscall_id: usize) -> isize {
+    TASK_MANAGER.get_count(task_id, syscall_id)
+}
+
+/// Get the id of the current 'Running' task.
+pub fn get_current_task() -> usize {
+    TASK_MANAGER.get_current_task()
+}
+
+/// Map memory into the current task's address space.
+pub fn mmap_current(start: usize, len: usize, prot: usize) -> isize {
+    TASK_MANAGER.mmap_current(start, len, prot)
+}
+
+/// Unmap memory from the current task's address space.
+pub fn munmap_current(start: usize, len: usize) -> isize {
+    TASK_MANAGER.munmap_current(start, len)
 }

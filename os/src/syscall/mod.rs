@@ -18,6 +18,8 @@ const SYSCALL_YIELD: usize = 124;
 const SYSCALL_GET_TIME: usize = 169;
 /// sbrk syscall
 const SYSCALL_SBRK: usize = 214;
+/// sbrk lazy_allocate
+const LAZY_ALLOCATE: usize = 2;
 /// munmap syscall
 const SYSCALL_MUNMAP: usize = 215;
 /// mmap syscall
@@ -42,6 +44,7 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
         SYSCALL_MMAP => sys_mmap(args[0], args[1], args[2]),
         SYSCALL_MUNMAP => sys_munmap(args[0], args[1]),
         SYSCALL_SBRK => sys_sbrk(args[0] as i32),
+        LAZY_ALLOCATE=>sys_lazy(args[0] as i32),
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
 }

@@ -1,6 +1,6 @@
 //! Types related to task management
 use super::TaskContext;
-use crate::config::TRAP_CONTEXT_BASE;
+use crate::config::{MAX_SYSCALL_NUM, TRAP_CONTEXT_BASE};
 use crate::mm::{
     kernel_stack_position, MapPermission, MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE,
 };
@@ -28,6 +28,9 @@ pub struct TaskControlBlock {
 
     /// Program break
     pub program_brk: usize,
+
+    /// Per-task syscall counter, indexed by syscall id
+    pub syscall_count: [usize; MAX_SYSCALL_NUM],
 }
 
 impl TaskControlBlock {
@@ -63,6 +66,7 @@ impl TaskControlBlock {
             base_size: user_sp,
             heap_bottom: user_sp,
             program_brk: user_sp,
+            syscall_count: [0; MAX_SYSCALL_NUM],
         };
         // prepare TrapContext in user space
         let trap_cx = task_control_block.get_trap_cx();
@@ -94,6 +98,52 @@ impl TaskControlBlock {
             Some(old_break)
         } else {
             None
+        }
+    }
+
+    /// Map `len` bytes starting at `start` with the user-supplied `prot`.
+    ///
+    /// The bits of `prot` are 0b001 = readable, 0b010 = writable,
+    /// 0b100 = executable. Note this is *not* the same encoding as
+    /// [`MapPermission`], and the `U` flag is always added.
+    pub fn mmap(&mut self, start: usize, len: usize, prot: usize) -> isize {
+        // `prot` may only contain the R/W/X bits, and at least one of them
+        if prot == 0 || prot & !0b111 != 0 {
+            return -1;
+        }
+        let start_va = VirtAddr::from(start);
+        if !start_va.aligned() {
+            return -1;
+        }
+        let mut perm = MapPermission::U;
+        if prot & 0b001 != 0 {
+            perm |= MapPermission::R;
+        }
+        if prot & 0b010 != 0 {
+            perm |= MapPermission::W;
+        }
+        if prot & 0b100 != 0 {
+            perm |= MapPermission::X;
+        }
+        let end_va = VirtAddr::from(start + len);
+        if self.memory_set.mmap(start_va, end_va, perm) {
+            0
+        } else {
+            -1
+        }
+    }
+
+    /// Unmap `len` bytes starting at `start`. All pages must have been mapped.
+    pub fn munmap(&mut self, start: usize, len: usize) -> isize {
+        let start_va = VirtAddr::from(start);
+        if !start_va.aligned() {
+            return -1;
+        }
+        let end_va = VirtAddr::from(start + len);
+        if self.memory_set.munmap(start_va, end_va) {
+            0
+        } else {
+            -1
         }
     }
 }

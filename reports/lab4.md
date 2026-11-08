@@ -10,14 +10,18 @@
 
 4. 我从未使用过他人的代码，不管是原封不动地复制，还是经过了某些等价转换。 我未曾也不会向他人（含此后各届同学）复制或公开我的实验代码，我有义务妥善保管好它们。 我提交至本实验的评测系统的代码，均无意于破坏或妨碍任何计算机系统的正常运转。 我清楚地知道，以上情况均为本课程纪律所禁止，若违反，对应的实验成绩将按“-100”分计。
 
-问答作业见 `reports/lab3.md`。
-
 总结功能：
 
-给 DiskInode 增加 nlink 字段（initialize 时置 1），给 VFS 的 Inode 增加 inode_id 字段，使上层能拿到 inode 号。
+新增 `sys_linkat`(37)、`sys_unlinkat`(35)、`sys_fstat`(80)。
 
-实现 Inode::link：在目录中追加一个 dirent 指向已有 inode，并把该 inode 的 nlink 加一；名字已存在时返回失败。
+`DiskInode` 增加 `nlink` 字段（`initialize` 时置 1），`Inode` 增加 `inode_id` 字段，让 VFS 层能拿到 inode 号。
 
-实现 Inode::unlink：找到 dirent 并把最后一个 dirent 搬过来覆盖它，用 shrink_size 缩减目录大小、回收变成多余的数据块；再把目标 inode 的 nlink 减一，减到 0 时清空数据块并释放 inode。注意 clear 会自己取文件系统锁，所以必须先放锁再调用，否则死锁。
+`Inode::link`：在目录中追加一个 dirent 指向已有 inode，并把该 inode 的 `nlink` 加一；名字已存在时返回失败。两个名字共用同一份数据块。
 
-实现 sys_linkat(37)、sys_unlinkat(35)、sys_fstat(80)。fstat 通过给 File trait 增加 as_any 向下转型拿到 OSInode，再读 inode 的类型、inode 号与 nlink 组装 Stat。
+`Inode::unlink`：找到 dirent 并用最后一项覆盖它，再用 `shrink_size` 缩减目录大小、回收多余的数据块；随后把目标 inode 的 `nlink` 减一，减到 0 时才清空数据块并释放 inode。`clear` 会自行获取文件系统锁，所以必须先释放锁再调用，否则会死锁。
+
+`fstat` 通过给 `File` trait 增加 `as_any` 向下转型拿到 `OSInode`，再读 inode 的类型、inode 号与 `nlink` 组装 `Stat`。
+
+### 1.在我们的easy-fs中，root inode起着什么作用？如果root inode中的内容损坏了，会发生什么？
+
+rnode是整个目录树的唯一起点,作为根目录，之后的文件的父目录都是这个，文件解析也从这里开始。如果损坏，在解析的时候可能会出现问题，导致无法读取文件。

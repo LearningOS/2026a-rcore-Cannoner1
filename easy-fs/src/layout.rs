@@ -86,6 +86,8 @@ pub struct DiskInode {
     pub indirect1: u32,
     pub indirect2: u32,
     type_: DiskInodeType,
+    /// number of hard links pointing at this inode
+    pub nlink: u32,
 }
 
 impl DiskInode {
@@ -97,6 +99,7 @@ impl DiskInode {
         self.indirect1 = 0;
         self.indirect2 = 0;
         self.type_ = type_;
+        self.nlink = 1;
     }
     /// Whether this inode is a directory
     pub fn is_dir(&self) -> bool {
@@ -106,6 +109,10 @@ impl DiskInode {
     #[allow(unused)]
     pub fn is_file(&self) -> bool {
         self.type_ == DiskInodeType::File
+    }
+    /// Read the hard-link count of this inode
+    pub fn nlink(&self) -> u32 {
+        self.nlink
     }
     /// Return block number correspond to size.
     pub fn data_blocks(&self) -> u32 {
@@ -237,7 +244,58 @@ impl DiskInode {
 
     /// Clear size to zero and return blocks that should be deallocated.
     /// We will clear the block contents to zero later.
+    #[allow(dead_code)]
     pub fn clear_size(&mut self, block_device: &Arc<dyn BlockDevice>) -> Vec<u32> {
+        self._clear_size(block_device)
+    }
+    /// Shrink the inode to `new_size` and return the data blocks that are no
+    /// longer used, so the caller can return them to the filesystem.
+    ///
+    /// Only data blocks are released here; the indirect blocks stay allocated
+    /// and simply lose the entries pointing past the new end.
+    pub fn shrink_size(
+        &mut self,
+        new_size: u32,
+        block_device: &Arc<dyn BlockDevice>,
+    ) -> Vec<u32> {
+        assert!(new_size <= self.size);
+        let old_data_blocks = self.data_blocks() as usize;
+        let new_data_blocks = Self::_data_blocks(new_size) as usize;
+        self.size = new_size;
+        let mut v: Vec<u32> = Vec::new();
+        for inner_id in new_data_blocks..old_data_blocks {
+            v.push(self.get_block_id(inner_id as u32, block_device));
+            self.set_block_id(inner_id as u32, 0, block_device);
+        }
+        v
+    }
+    /// Overwrite the data-block pointer stored at `inner_id`
+    fn set_block_id(&mut self, inner_id: u32, block_id: u32, block_device: &Arc<dyn BlockDevice>) {
+        let inner_id = inner_id as usize;
+        if inner_id < INODE_DIRECT_COUNT {
+            self.direct[inner_id] = block_id;
+        } else if inner_id < INDIRECT1_BOUND {
+            get_block_cache(self.indirect1 as usize, Arc::clone(block_device))
+                .lock()
+                .modify(0, |indirect_block: &mut IndirectBlock| {
+                    indirect_block[inner_id - INODE_DIRECT_COUNT] = block_id;
+                });
+        } else {
+            let last = inner_id - INDIRECT1_BOUND;
+            let indirect1 = get_block_cache(self.indirect2 as usize, Arc::clone(block_device))
+                .lock()
+                .read(0, |indirect2: &IndirectBlock| {
+                    indirect2[last / INODE_INDIRECT1_COUNT]
+                });
+            get_block_cache(indirect1 as usize, Arc::clone(block_device))
+                .lock()
+                .modify(0, |indirect1: &mut IndirectBlock| {
+                    indirect1[last % INODE_INDIRECT1_COUNT] = block_id;
+                });
+        }
+    }
+
+    fn _clear_size(&mut self, block_device: &Arc<dyn BlockDevice>) -> Vec<u32> {
         let mut v: Vec<u32> = Vec::new();
         let mut data_blocks = self.data_blocks() as usize;
         self.size = 0;

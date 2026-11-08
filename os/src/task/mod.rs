@@ -22,7 +22,7 @@ mod switch;
 #[allow(rustdoc::private_intra_doc_links)]
 mod task;
 
-use crate::{fs::{OpenFlags, open_file}, sync::UPSafeCell};
+use crate::fs::{OpenFlags, open_file};
 use alloc::sync::Arc;
 pub use context::TaskContext;
 use lazy_static::*;

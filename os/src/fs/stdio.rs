@@ -11,6 +11,9 @@ pub struct Stdin;
 pub struct Stdout;
 
 impl File for Stdin {
+    fn as_any(&self) -> &dyn core::any::Any {
+        self
+    }
     fn readable(&self) -> bool {
         true
     }
@@ -42,6 +45,9 @@ impl File for Stdin {
 }
 
 impl File for Stdout {
+    fn as_any(&self) -> &dyn core::any::Any {
+        self
+    }
     fn readable(&self) -> bool {
         false
     }

@@ -4,7 +4,7 @@
 //!
 //! `UPSafeCell<OSInodeInner>` -> `OSInode`: for static `ROOT_INODE`,we
 //! need to wrap `OSInodeInner` into `UPSafeCell`
-use super::File;
+use super::{File, Stat, StatMode};
 use crate::drivers::BLOCK_DEVICE;
 use crate::mm::UserBuffer;
 use crate::sync::UPSafeCell;
@@ -37,6 +37,22 @@ impl OSInode {
             inner: unsafe { UPSafeCell::new(OSInodeInner { offset: 0, inode }) },
         }
     }
+    /// Fill `stat` with the metadata of the underlying inode
+    pub fn stat(&self) -> Stat {
+        let inner = self.inner.exclusive_access();
+        let mode = if inner.inode.is_dir() {
+            StatMode::DIR
+        } else {
+            StatMode::FILE
+        };
+        Stat {
+            dev: 0,
+            ino: inner.inode.inode_id() as u64,
+            mode,
+            nlink: inner.inode.nlink(),
+            pad: [0; 7],
+        }
+    }
     /// read all data from the inode
     pub fn read_all(&self) -> Vec<u8> {
         let mut inner = self.inner.exclusive_access();
@@ -60,6 +76,19 @@ lazy_static! {
         let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
         Arc::new(EasyFileSystem::root_inode(&efs))
     };
+}
+
+/// Create a hard link `new_name` for the file `old_name` in the root directory
+pub fn link_file(old_name: &str, new_name: &str) -> bool {
+    match ROOT_INODE.find(old_name) {
+        Some(inode) => ROOT_INODE.link(new_name, &inode),
+        None => false,
+    }
+}
+
+/// Remove the path `name` from the root directory
+pub fn unlink_file(name: &str) -> bool {
+    ROOT_INODE.unlink(name)
 }
 
 /// List all apps in the root directory
@@ -131,6 +160,9 @@ impl File for OSInode {
     }
     fn writable(&self) -> bool {
         self.writable
+    }
+    fn as_any(&self) -> &dyn core::any::Any {
+        self
     }
     fn read(&self, mut buf: UserBuffer) -> usize {
         let mut inner = self.inner.exclusive_access();

@@ -35,6 +35,28 @@ pub use processor::{
     current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
     Processor,
 };
+
+/// Spawn a new process running the ELF image `elf_data`, returning its pid.
+///
+/// The child is a *new* address space built from the ELF file; nothing is
+/// copied from the caller, unlike `fork`.
+pub fn spawn_current(elf_data: &[u8]) -> isize {
+    let new_task = current_task().unwrap().spawn(elf_data);
+    let pid = new_task.pid.0 as isize;
+    add_task(new_task);
+    pid
+}
+
+/// Set the priority of the current process.
+///
+/// Returns `-1` if `prio < 2`, otherwise the priority before the change.
+pub fn set_priority_current(prio: isize) -> isize {
+    if prio < 2 {
+        return -1;
+    }
+    current_task().unwrap().set_priority(prio)
+}
+
 /// Suspend the current 'Running' task and run the next task in task list.
 pub fn suspend_current_and_run_next() {
     // There must be an application running.

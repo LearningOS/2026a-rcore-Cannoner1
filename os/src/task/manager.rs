@@ -1,29 +1,51 @@
-//!Implementation of [`TaskManager`]
+//! Implementation of [`TaskManager`]
 use super::TaskControlBlock;
 use crate::sync::UPSafeCell;
-use alloc::collections::VecDeque;
+use alloc::vec::Vec;
 use alloc::sync::Arc;
 use lazy_static::*;
-///A array of `TaskControlBlock` that is thread-safe
+/// A array of `TaskControlBlock` that is thread-safe
 pub struct TaskManager {
-    ready_queue: VecDeque<Arc<TaskControlBlock>>,
+    ready_queue: Vec<Arc<TaskControlBlock>>,
 }
 
-/// A simple FIFO scheduler.
+/// A stride scheduler.
 impl TaskManager {
-    ///Creat an empty TaskManager
+    /// Creat an empty TaskManager
     pub fn new() -> Self {
         Self {
-            ready_queue: VecDeque::new(),
+            ready_queue: Vec::new(),
         }
     }
     /// Add process back to ready queue
     pub fn add(&mut self, task: Arc<TaskControlBlock>) {
-        self.ready_queue.push_back(task);
+        self.ready_queue.push(task);
     }
-    /// Take a process out of the ready queue
+    /// Take the runnable process with the smallest stride out of the ready
+    /// queue, charging it one pass of stride.
+    ///
+    /// Scanning the whole queue is `O(n)`, which is more than fast enough for
+    /// the few processes this kernel runs and keeps the invariant obvious:
+    /// the process that has received the least service so far runs next.
     pub fn fetch(&mut self) -> Option<Arc<TaskControlBlock>> {
-        self.ready_queue.pop_front()
+        let mut min_stride = usize::MAX;
+        let mut min_idx = None;
+        for (idx, task) in self.ready_queue.iter().enumerate() {
+            let stride = task.inner_exclusive_access().stride;
+            if stride < min_stride {
+                min_stride = stride;
+                min_idx = Some(idx);
+            }
+        }
+        let idx = min_idx?;
+        let task = self.ready_queue.remove(idx);
+        // the running process advances by its pass, so low-priority processes
+        // (large pass) fall behind faster and get scheduled less often
+        {
+            let mut inner = task.inner_exclusive_access();
+            inner.stride += inner.pass;
+        }
+        Some(task)
     }
 }
 

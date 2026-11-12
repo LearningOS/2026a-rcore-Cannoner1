@@ -52,4 +52,33 @@ impl Semaphore {
             block_current_and_run_next();
         }
     }
+
+    /// Take one instance if one is free, otherwise switch away and retry.
+    ///
+    /// Returns whether a wait had to happen. The check and the enqueue share
+    /// one critical section, so a wakeup can never be lost between them.
+    pub fn take_or_wait(&self) -> bool {
+        let mut inner = self.inner.exclusive_access();
+        if inner.count > 0 {
+            inner.count -= 1;
+            false
+        } else {
+            inner.count -= 1;
+            inner.wait_queue.push_back(current_task().unwrap());
+            drop(inner);
+            block_current_and_run_next();
+            true
+        }
+    }
+
+    /// Whether a `down` right now would succeed without blocking.
+    pub fn is_available(&self) -> bool {
+        self.inner.exclusive_access().count > 0
+    }
+
+    /// Would the next [`Semaphore::up`] hand its instance to a waiter?
+    pub fn will_hand_off(&self) -> bool {
+        let inner = self.inner.exclusive_access();
+        inner.count + 1 <= 0 && !inner.wait_queue.is_empty()
+    }
 }
